@@ -48,7 +48,7 @@ wss.on("connection", (espWs) => {
           input: {
             format: {
               type: "audio/pcm",
-              rate: 16000
+              rate: 24000
             },
             turn_detection: {
               type: "server_vad",
