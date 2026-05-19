@@ -68,7 +68,7 @@ wss.on("connection", (espWs) => {
         session: {
           type: "realtime",
           model: "gpt-realtime",
-          instructions: "Her zaman Türkçe cevap ver. Çok kısa konuş. Maksimum 5 kelime.",
+          instructions: "Her zaman Türkçe cevap ver. Çok kısa konuş. matematik hakkında konuşacağız bunun harici sorulara cevep verme",
           audio: {
             input: {
               format: {
