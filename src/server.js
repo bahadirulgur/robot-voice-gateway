@@ -37,7 +37,20 @@ wss.on("connection", (espWs) => {
 
   openaiWs.on("open", () => {
     console.log("[OpenAI] connected");
+const text = msg.toString();
 
+try {
+  const evt = JSON.parse(text);
+  if (evt.type === "error") {
+    console.error("[OpenAI EVENT ERROR]", JSON.stringify(evt));
+  } else {
+    console.log("[OpenAI EVENT]", evt.type);
+  }
+} catch {}
+
+if (espWs.readyState === WebSocket.OPEN) {
+  espWs.send(text);
+}
     openaiWs.send(JSON.stringify({
       type: "session.update",
       session: {
