@@ -26,15 +26,14 @@ const wss = new WebSocket.Server({
 wss.on("connection", (espWs) => {
   console.log("[ESP] connected");
 
-  const openaiWs = new WebSocket(
-    "wss://api.openai.com/v1/realtime?model=gpt-realtime",
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "OpenAI-Beta": "realtime=v1"
-      }
+const openaiWs = new WebSocket(
+  "wss://api.openai.com/v1/realtime?model=gpt-realtime",
+  {
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
     }
-  );
+  }
+);
 
   openaiWs.on("open", () => {
     console.log("[OpenAI] connected");
