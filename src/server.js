@@ -26,90 +26,121 @@ const wss = new WebSocket.Server({
 wss.on("connection", (espWs) => {
   console.log("[ESP] connected");
 
-const openaiWs = new WebSocket(
-  "wss://api.openai.com/v1/realtime?model=gpt-realtime",
-  {
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+  let sessionUpdated = false;
+
+  const openaiWs = new WebSocket(
+    "wss://api.openai.com/v1/realtime?model=gpt-realtime",
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+      }
     }
-  }
-);
+  );
 
-openaiWs.on("message", (msg) => {
-  const text = msg.toString();
-
-  let evt;
-  try {
-    evt = JSON.parse(text);
-  } catch {
-    return;
-  }
-
-  if (evt.type === "error") {
-    console.error("[OpenAI EVENT ERROR]", JSON.stringify(evt));
-    if (espWs.readyState === WebSocket.OPEN) {
-      espWs.send(JSON.stringify(evt));
-    }
-    return;
-  }
-
-  console.log("[OpenAI EVENT]", evt.type);
-
-  // Ses cevabı: base64 decode edip ESP'ye binary gönder
-  if (evt.type === "response.output_audio.delta" && evt.delta) {
-    if (espWs.readyState === WebSocket.OPEN) {
-      const pcmBuffer = Buffer.from(evt.delta, "base64");
-      espWs.send(pcmBuffer, { binary: true });
-    }
-    return;
-  }
-
-  // Ses bitti bilgisini küçük JSON olarak gönder
-  if (evt.type === "response.output_audio.done") {
-    if (espWs.readyState === WebSocket.OPEN) {
-      espWs.send(JSON.stringify({ type: "audio.done" }));
-    }
-    return;
-  }
-
-  // Diğer eventleri istersen küçük JSON olarak geçir
-  if (
-    evt.type === "session.created" ||
-    evt.type === "session.updated" ||
-    evt.type === "input_audio_buffer.speech_started" ||
-    evt.type === "input_audio_buffer.speech_stopped" ||
-    evt.type === "response.done"
-  ) {
-    if (espWs.readyState === WebSocket.OPEN) {
-      espWs.send(JSON.stringify({ type: evt.type }));
-    }
-  }
-});
-
-  espWs.on("message", (data) => {
-    if (openaiWs.readyState === WebSocket.OPEN) {
-      openaiWs.send(data.toString());
-    }
+  openaiWs.on("open", () => {
+    console.log("[OpenAI] connected");
   });
 
   openaiWs.on("message", (msg) => {
-    const text = msg.toString();
+    let evt;
 
     try {
-      const evt = JSON.parse(text);
-
-      if (evt.type === "error") {
-        console.error("[OpenAI EVENT ERROR]", JSON.stringify(evt));
-      } else {
-        console.log("[OpenAI EVENT]", evt.type);
-      }
+      evt = JSON.parse(msg.toString());
     } catch {
-      console.log("[OpenAI RAW]", text.substring(0, 100));
+      return;
     }
 
-    if (espWs.readyState === WebSocket.OPEN) {
-      espWs.send(text);
+    console.log("[OpenAI EVENT]", evt.type);
+
+    if (evt.type === "error") {
+      console.error("[OpenAI ERROR]", JSON.stringify(evt));
+      if (espWs.readyState === WebSocket.OPEN) {
+        espWs.send(JSON.stringify(evt));
+      }
+      return;
     }
+
+    if (evt.type === "session.created" && !sessionUpdated) {
+      sessionUpdated = true;
+
+      openaiWs.send(JSON.stringify({
+        type: "session.update",
+        session: {
+          type: "realtime",
+          model: "gpt-realtime",
+          instructions: "Her zaman Türkçe cevap ver. Çok kısa konuş. Maksimum 5 kelime.",
+          audio: {
+            input: {
+              format: {
+                type: "audio/pcm",
+                rate: 24000
+              },
+              turn_detection: {
+                type: "server_vad",
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 700,
+                create_response: true,
+                interrupt_response: true
+              }
+            },
+            output: {
+              format: {
+                type: "audio/pcm",
+                rate: 24000
+              },
+              voice: "alloy"
+            }
+          }
+        }
+      }));
+
+      return;
+    }
+
+    if (evt.type === "session.updated") {
+      if (espWs.readyState === WebSocket.OPEN) {
+        espWs.send(JSON.stringify({ type: "gateway.ready" }));
+      }
+      return;
+    }
+
+    if (evt.type === "response.output_audio.delta" && evt.delta) {
+      if (espWs.readyState === WebSocket.OPEN) {
+        const pcmBuffer = Buffer.from(evt.delta, "base64");
+        espWs.send(pcmBuffer, { binary: true });
+      }
+      return;
+    }
+
+    if (evt.type === "response.output_audio.done") {
+      if (espWs.readyState === WebSocket.OPEN) {
+        espWs.send(JSON.stringify({ type: "audio.done" }));
+      }
+      return;
+    }
+
+    if (
+      evt.type === "input_audio_buffer.speech_started" ||
+      evt.type === "input_audio_buffer.speech_stopped" ||
+      evt.type === "response.done"
+    ) {
+      if (espWs.readyState === WebSocket.OPEN) {
+        espWs.send(JSON.stringify({ type: evt.type }));
+      }
+    }
+  });
+
+  espWs.on("message", (data, isBinary) => {
+    if (openaiWs.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (isBinary) {
+      return;
+    }
+
+    openaiWs.send(data.toString());
   });
 
   espWs.on("close", () => {
@@ -128,7 +159,6 @@ openaiWs.on("message", (msg) => {
 
   openaiWs.on("error", (err) => {
     console.error("[OpenAI] error:", err.message);
-
     if (espWs.readyState === WebSocket.OPEN) {
       espWs.send(JSON.stringify({
         type: "gateway.error",
