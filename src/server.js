@@ -35,45 +35,56 @@ const openaiWs = new WebSocket(
   }
 );
 
-  openaiWs.on("open", () => {
-    console.log("[OpenAI] connected");
+openaiWs.on("message", (msg) => {
+  const text = msg.toString();
 
-    openaiWs.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        type: "realtime",
-        model: "gpt-realtime",
-        instructions: "Her zaman Türkçe cevap ver. Çok kısa konuş. Maksimum 5 kelime.",
-        audio: {
-          input: {
-            format: {
-              type: "audio/pcm",
-              rate: 24000
-            },
-            turn_detection: {
-              type: "server_vad",
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 700,
-              create_response: true,
-              interrupt_response: true
-            }
-          },
-          output: {
-            format: {
-              type: "audio/pcm",
-              rate: 24000
-            },
-            voice: "alloy"
-          }
-        }
-      }
-    }));
+  let evt;
+  try {
+    evt = JSON.parse(text);
+  } catch {
+    return;
+  }
 
+  if (evt.type === "error") {
+    console.error("[OpenAI EVENT ERROR]", JSON.stringify(evt));
     if (espWs.readyState === WebSocket.OPEN) {
-      espWs.send(JSON.stringify({ type: "gateway.ready" }));
+      espWs.send(JSON.stringify(evt));
     }
-  });
+    return;
+  }
+
+  console.log("[OpenAI EVENT]", evt.type);
+
+  // Ses cevabı: base64 decode edip ESP'ye binary gönder
+  if (evt.type === "response.output_audio.delta" && evt.delta) {
+    if (espWs.readyState === WebSocket.OPEN) {
+      const pcmBuffer = Buffer.from(evt.delta, "base64");
+      espWs.send(pcmBuffer, { binary: true });
+    }
+    return;
+  }
+
+  // Ses bitti bilgisini küçük JSON olarak gönder
+  if (evt.type === "response.output_audio.done") {
+    if (espWs.readyState === WebSocket.OPEN) {
+      espWs.send(JSON.stringify({ type: "audio.done" }));
+    }
+    return;
+  }
+
+  // Diğer eventleri istersen küçük JSON olarak geçir
+  if (
+    evt.type === "session.created" ||
+    evt.type === "session.updated" ||
+    evt.type === "input_audio_buffer.speech_started" ||
+    evt.type === "input_audio_buffer.speech_stopped" ||
+    evt.type === "response.done"
+  ) {
+    if (espWs.readyState === WebSocket.OPEN) {
+      espWs.send(JSON.stringify({ type: evt.type }));
+    }
+  }
+});
 
   espWs.on("message", (data) => {
     if (openaiWs.readyState === WebSocket.OPEN) {
