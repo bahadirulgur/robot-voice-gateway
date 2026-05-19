@@ -30,27 +30,15 @@ wss.on("connection", (espWs) => {
     "wss://api.openai.com/v1/realtime?model=gpt-realtime",
     {
       headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "OpenAI-Beta": "realtime=v1"
       }
     }
   );
 
   openaiWs.on("open", () => {
     console.log("[OpenAI] connected");
-const text = msg.toString();
 
-try {
-  const evt = JSON.parse(text);
-  if (evt.type === "error") {
-    console.error("[OpenAI EVENT ERROR]", JSON.stringify(evt));
-  } else {
-    console.log("[OpenAI EVENT]", evt.type);
-  }
-} catch {}
-
-if (espWs.readyState === WebSocket.OPEN) {
-  espWs.send(text);
-}
     openaiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -83,9 +71,9 @@ if (espWs.readyState === WebSocket.OPEN) {
       }
     }));
 
-    espWs.send(JSON.stringify({
-      type: "gateway.ready"
-    }));
+    if (espWs.readyState === WebSocket.OPEN) {
+      espWs.send(JSON.stringify({ type: "gateway.ready" }));
+    }
   });
 
   espWs.on("message", (data) => {
@@ -95,8 +83,22 @@ if (espWs.readyState === WebSocket.OPEN) {
   });
 
   openaiWs.on("message", (msg) => {
+    const text = msg.toString();
+
+    try {
+      const evt = JSON.parse(text);
+
+      if (evt.type === "error") {
+        console.error("[OpenAI EVENT ERROR]", JSON.stringify(evt));
+      } else {
+        console.log("[OpenAI EVENT]", evt.type);
+      }
+    } catch {
+      console.log("[OpenAI RAW]", text.substring(0, 100));
+    }
+
     if (espWs.readyState === WebSocket.OPEN) {
-      espWs.send(msg.toString());
+      espWs.send(text);
     }
   });
 
@@ -110,8 +112,13 @@ if (espWs.readyState === WebSocket.OPEN) {
     try { espWs.close(); } catch {}
   });
 
+  espWs.on("error", (err) => {
+    console.error("[ESP] error:", err.message);
+  });
+
   openaiWs.on("error", (err) => {
     console.error("[OpenAI] error:", err.message);
+
     if (espWs.readyState === WebSocket.OPEN) {
       espWs.send(JSON.stringify({
         type: "gateway.error",
